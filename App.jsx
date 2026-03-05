@@ -266,6 +266,14 @@ export default function ReconciliacionCombustible() {
       const KEY_FACTURA = 'no de factura';  // "N° de Factura" normalizado
       const KEY_IMAGEN  = 'imagen de respaldo';
 
+      // Normalizar número de remito: extrae XXXX-XXXXXXXX ignorando prefijos como "RE R", "A FT", etc.
+      const normalizeRemito = (s) => {
+        const str = String(s).trim().toUpperCase();
+        const match = str.match(/(\d{4,6}-\d{5,8})$/);
+        if (match) return match[1];
+        return str.replace(/[^0-9A-Z-]/g, '');
+      };
+
       // Mapa por Nº de Remito → item completo (con imagen)
       const remitosSheet  = new Map();
       // Mapa por Nº de Factura → item completo (para detectar carga en columna errónea)
@@ -274,8 +282,8 @@ export default function ReconciliacionCombustible() {
       sheet.forEach(item => {
         const kR = findKey(item, KEY_REMITO);
         const kF = findKey(item, KEY_FACTURA);
-        const r  = kR ? String(item[kR]).trim().toUpperCase() : '';
-        const f  = kF ? String(item[kF]).trim().toUpperCase() : '';
+        const r  = kR ? normalizeRemito(item[kR]) : '';
+        const f  = kF ? normalizeRemito(item[kF]) : '';
         if (r) remitosSheet.set(r, item);
         if (f) facturasSheet.set(f, item);
       });
@@ -292,11 +300,12 @@ export default function ReconciliacionCombustible() {
       let montoCubierto = 0, montoRevision = 0, montoFaltante = 0;
 
       rawExcelData.forEach(item => {
-        const remito = String(item[mapeo.remito] || '').trim().toUpperCase();
+        const remitoRaw = String(item[mapeo.remito] || '').trim();
+        const remito = normalizeRemito(remitoRaw);
         if (!remito) return;
 
         const det = {
-          remito,
+          remito: remitoRaw, // mostrar el original en pantalla
           chofer:  mapeo.chofer  ? String(item[mapeo.chofer]  || 'N/A') : 'N/A',
           patente: mapeo.patente ? String(item[mapeo.patente] || 'N/A') : 'N/A',
           monto:   mapeo.monto   ? (parseFloat(item[mapeo.monto]) || 0)  : 0,
