@@ -266,13 +266,20 @@ export default function ReconciliacionCombustible() {
       const KEY_FACTURA = 'no de factura';  // "N° de Factura" normalizado
       const KEY_IMAGEN  = 'imagen de respaldo';
 
-      // Normalizar número de remito: extrae XXXX-XXXXXXXX ignorando prefijos como "RE R", "A FT", etc.
-      const normalizeRemito = (s) => {
-        const str = String(s).trim().toUpperCase();
-        const match = str.match(/(\d{4,6}-\d{5,8})$/);
-        if (match) return match[1];
-        return str.replace(/[^0-9A-Z-]/g, '');
-      };
+    const normalizeRemito = (s) => {
+  const str = String(s).trim().toUpperCase();
+  
+  // 1. Eliminar prefijos comunes que vienen en el Excel
+  const limpio = str.replace(/^(RE R|A FT|A|B|C|FC|FAC)\s+/i, '');
+  
+  // 2. Extraer solo los números y guiones (ej: 0042-00004384)
+  const match = limpio.match(/(\d{4,}-\d{5,})/);
+  
+  if (match) return match[1];
+  
+  // 3. Si no hay guion, devolver solo los números limpios
+  return str.replace(/[^0-9]/g, '');
+};
 
       // Mapa por Nº de Remito → item completo (con imagen)
       const remitosSheet  = new Map();
