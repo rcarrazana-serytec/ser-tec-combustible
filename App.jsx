@@ -258,37 +258,69 @@ export default function ReconciliacionCombustible() {
         .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
         .trim();
 
-      // Encontrar las keys reales del objeto según nombre normalizado
-      const findKey = (obj, targetNorm) =>
-        Object.keys(obj).find(k => normalizeKey(k) === targetNorm) || null;
+      // Encontrar las keys reales del objeto según nombre normalizado.
+      // Primero intenta match EXACTO contra el nombre esperado; si no lo
+      // encuentra, cae a un match flexible buscando que el nombre de columna
+      // CONTENGA la palabra clave (tolera variantes como "Remito Nro",
+      // "N° Remito", "Nro. de Remito", etc. que antes rompían el matching).
+      const findKey = (obj, targetNorm, fallbackIncludes) => {
+        const exacto = Object.keys(obj).find(k => normalizeKey(k) === targetNorm);
+        if (exacto) return exacto;
+        if (fallbackIncludes) {
+          return Object.keys(obj).find(k => normalizeKey(k).includes(fallbackIncludes)) || null;
+        }
+        return null;
+      };
 
       const KEY_REMITO  = 'no de remito';   // "Nº de Remito" normalizado
       const KEY_FACTURA = 'no de factura';  // "N° de Factura" normalizado
       const KEY_IMAGEN  = 'imagen de respaldo';
 
+      // --- DIAGNÓSTICO: abrí la consola del navegador (F12 → Console) para
+      // ver exactamente qué columnas está devolviendo el Google Sheet ---
+      if (sheet.length) {
+        console.log('[DEBUG] Columnas reales del Google Sheet:', Object.keys(sheet[0]));
+      }
+
     const normalizeRemito = (s) => {
-  const str = String(s).trim().toUpperCase();
-  
-  // 1. Eliminar prefijos comunes que vienen en el Excel
-  const limpio = str.replace(/^(RE R|A FT|A|B|C|FC|FAC)\s+/i, '');
-  
-  // 2. Extraer solo los números y guiones (ej: 0042-00004384)
-  const match = limpio.match(/(\d{4,}-\d{5,})/);
-  
-  if (match) return match[1];
-  
-  // 3. Si no hay guion, devolver solo los números limpios
-  return str.replace(/[^0-9]/g, '');
-};
+      const str = String(s).trim().toUpperCase();
+
+      // Buscar un patrón "dígitos - dígitos" en cualquier parte del string,
+      // sin exigir una cantidad fija de dígitos de cada lado. Esto tolera
+      // formatos nuevos con más o menos dígitos que los que venían antes
+      // (ej: "RE R 0042-00004055", "A FT 0045-00002222", "0042-4055", etc.)
+      const match = str.match(/(\d+)\s*-\s*(\d+)/);
+      if (match) {
+        // Convertir cada parte a número descarta los ceros a la izquierda,
+        // así "00042-00004055" y "0042-4055" terminan en la misma clave
+        // aunque cada sistema use una cantidad distinta de relleno.
+        const parte1 = String(parseInt(match[1], 10));
+        const parte2 = String(parseInt(match[2], 10));
+        return `${parte1}-${parte2}`; // se mantiene el guion como separador
+                                       // para no mezclar dígitos de una parte
+                                       // con la otra (12-3 no es lo mismo que 1-23)
+      }
+
+      // Si no hay guion, devolver solo los dígitos de todo el string,
+      // también sin ceros a la izquierda.
+      const soloDigitos = str.replace(/[^0-9]/g, '');
+      return soloDigitos ? String(parseInt(soloDigitos, 10)) : '';
+    };
 
       // Mapa por Nº de Remito → item completo (con imagen)
       const remitosSheet  = new Map();
       // Mapa por Nº de Factura → item completo (para detectar carga en columna errónea)
       const facturasSheet = new Map();
 
-      sheet.forEach(item => {
-        const kR = findKey(item, KEY_REMITO);
-        const kF = findKey(item, KEY_FACTURA);
+      sheet.forEach((item, index) => {
+        const kR = findKey(item, KEY_REMITO, 'remito');
+        const kF = findKey(item, KEY_FACTURA, 'factura');
+
+        if (index === 0) {
+          console.log('[DEBUG] Columna de Remito detectada:', kR);
+          console.log('[DEBUG] Columna de Factura detectada:', kF);
+        }
+
         const r  = kR ? normalizeRemito(item[kR]) : '';
         const f  = kF ? normalizeRemito(item[kF]) : '';
         if (r) remitosSheet.set(r, item);
@@ -337,6 +369,7 @@ export default function ReconciliacionCombustible() {
           montoRevision += det.monto;
         } else {
           // ❌ No Cargado — no aparece en ninguna columna
+          console.log('[DEBUG] No encontrado → Excel crudo:', remitoRaw, '| normalizado:', remito);
           det.estado = 'No Cargado';
           faltantes.push(det);
           montoFaltante += det.monto;
